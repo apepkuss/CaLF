@@ -1,4 +1,6 @@
-![CALF Logo](/docs/calf-logo.png)
+<p align="center">
+<img src="/docs/calf-logo.png" alt="CALF Logo" style="width:60%;"/>
+</p>
 
 # CALF: Candle-based LLM Inference Framework
 
