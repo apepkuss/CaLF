@@ -1,0 +1,42 @@
+[package]
+name = "calf"
+version = "0.1.0"
+edition = "2021"
+description = "Candle-based LLM Inference Framework"
+
+[[bin]]
+name = "calf"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+candle-core = { path = "/Volumes/Dev/secondstate/me/candle/candle-core" }
+candle-nn = { path = "/Volumes/Dev/secondstate/me/candle/candle-nn" }
+candle-transformers = { path = "/Volumes/Dev/secondstate/me/candle/candle-transformers" }
+clap = { version = "4.0", features = ["derive"] }
+hf-hub = "0.3"
+tokenizers = "0.15"
+tracing = "0.1"
+tracing-chrome = "0.7"
+tracing-subscriber = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread"] }
+
+[features]
+default = []
+accelerate = [
+    "candle-core/accelerate",
+    "candle-nn/accelerate",
+    "candle-transformers/accelerate"
+]
+cuda = [
+    "candle-core/cuda",
+    "candle-nn/cuda",
+    "candle-transformers/cuda"
+]
+mkl = [
+    "candle-core/mkl",
+    "candle-nn/mkl",
+    "candle-transformers/mkl"
+]

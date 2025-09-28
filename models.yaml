@@ -1,0 +1,87 @@
+models:
+  qwen3-0.6b:
+    display_name: "Qwen3 0.6B"
+    model_type: "qwen3"
+    repo: "unsloth/Qwen3-0.6B-GGUF"
+    filename: "Qwen3-0.6B-Q4_K_M.gguf"
+    revision: "main"
+    tokenizer_repo: "Qwen/Qwen3-0.6B"
+    prompt_template: "qwen_chat"
+    eos_token: "<|im_end|>"
+    default_temperature: 0.8
+    max_context_length: 32768
+
+  qwen3-4b:
+    display_name: "Qwen3 4B"
+    model_type: "qwen3"
+    repo: "unsloth/Qwen3-4B-GGUF"
+    filename: "Qwen3-4B-Q4_K_M.gguf"
+    revision: "main"
+    tokenizer_repo: "Qwen/Qwen3-4B"
+    prompt_template: "qwen_chat"
+    eos_token: "<|im_end|>"
+    default_temperature: 0.8
+    max_context_length: 32768
+
+  phi-2:
+    display_name: "Microsoft Phi-2"
+    model_type: "phi2"
+    repo: "TheBloke/phi-2-GGUF"
+    filename: "phi-2.Q4_K_M.gguf"
+    revision: "main"
+    tokenizer_repo: "microsoft/phi-2"
+    prompt_template: "raw"
+    eos_token: "<|endoftext|>"
+    default_temperature: 0.8
+    max_context_length: 2048
+
+  phi-3:
+    display_name: "Microsoft Phi-3 Mini"
+    model_type: "phi3"
+    repo: "microsoft/Phi-3-mini-4k-instruct-gguf"
+    filename: "Phi-3-mini-4k-instruct-q4.gguf"
+    revision: "main"
+    tokenizer_repo: "microsoft/Phi-3-mini-4k-instruct"
+    prompt_template: "phi3_instruct"
+    eos_token: "<|endoftext|>"
+    default_temperature: 0.7
+    max_context_length: 4096
+    features:
+      flash_attention: true
+
+  phi-3b:
+    display_name: "Microsoft Phi-3 (LLaMA-based)"
+    model_type: "phi3b"
+    repo: "microsoft/Phi-3-mini-4k-instruct-gguf"
+    filename: "Phi-3-mini-4k-instruct-q4.gguf"
+    revision: "5eef2ce24766d31909c0b269fe90c817a8f263fb"
+    tokenizer_repo: "microsoft/Phi-3-mini-4k-instruct"
+    prompt_template: "phi3_instruct"
+    eos_token: "<|endoftext|>"
+    default_temperature: 0.7
+    max_context_length: 4096
+
+prompt_templates:
+  raw:
+    format: "{prompt}"
+
+  qwen_chat:
+    format: "<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+
+  phi3_instruct:
+    format: "<|user|>\n{prompt}<|end|>\n<|assistant|>\n"
+
+  llama_chat:
+    format: "[INST] {prompt} [/INST]"
+
+  alpaca:
+    format: "### Instruction:\n{prompt}\n\n### Response:\n"
+
+default_settings:
+  sample_length: 1000
+  temperature: 0.8
+  repeat_penalty: 1.1
+  repeat_last_n: 64
+  seed: 299792458
+  split_prompt: false
+  tracing: false

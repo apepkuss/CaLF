@@ -1,0 +1,41 @@
+# Simple configuration example with just two models
+models:
+  qwen3-small:
+    display_name: "Qwen3 0.6B (Small)"
+    model_type: "qwen3"
+    repo: "unsloth/Qwen3-0.6B-GGUF"
+    filename: "Qwen3-0.6B-Q4_K_M.gguf"
+    revision: "main"
+    tokenizer_repo: "Qwen/Qwen3-0.6B"
+    prompt_template: "qwen_chat"
+    eos_token: "<|im_end|>"
+    default_temperature: 0.7
+    max_context_length: 8192
+
+  phi2-basic:
+    display_name: "Phi-2 (Basic)"
+    model_type: "phi2"
+    repo: "TheBloke/phi-2-GGUF"
+    filename: "phi-2.Q4_K_M.gguf"
+    revision: "main"
+    tokenizer_repo: "microsoft/phi-2"
+    prompt_template: "raw"
+    eos_token: "<|endoftext|>"
+    default_temperature: 0.8
+    max_context_length: 2048
+
+prompt_templates:
+  raw:
+    format: "{prompt}"
+
+  qwen_chat:
+    format: "<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+
+default_settings:
+  sample_length: 500
+  temperature: 0.8
+  repeat_penalty: 1.1
+  repeat_last_n: 64
+  seed: 299792458
+  split_prompt: false
+  tracing: false
