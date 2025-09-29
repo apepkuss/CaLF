@@ -5,64 +5,12 @@ extern crate intel_mkl_src;
 extern crate accelerate_src;
 
 use clap::Parser;
-use std::io::{stdout, Write};
-use tokenizers::Tokenizer;
+use std::io::Write;
 
-use candle_core::{Device, Tensor, utils};
-use candle_transformers::generation::{LogitsProcessor, Sampling};
+use candle_core::utils;
 
-// Simple token output handler
-struct TokenOutputStream {
-    tokenizer: Tokenizer,
-    tokens: Vec<u32>,
-    prev_index: usize,
-}
-
-impl TokenOutputStream {
-    fn new(tokenizer: Tokenizer) -> Self {
-        Self {
-            tokenizer,
-            tokens: Vec::new(),
-            prev_index: 0,
-        }
-    }
-
-    fn next_token(&mut self, token: u32) -> anyhow::Result<()> {
-        self.tokens.push(token);
-        let text = self.tokenizer.decode(&self.tokens[self.prev_index..], false)
-            .map_err(|e| anyhow::anyhow!("Tokenizer decode error: {}", e))?;
-        print!("{}", text);
-        stdout().flush()?;
-        self.prev_index = self.tokens.len();
-        Ok(())
-    }
-
-    fn tokenizer(&self) -> &Tokenizer {
-        &self.tokenizer
-    }
-
-    fn get_tokens(&self) -> &[u32] {
-        &self.tokens
-    }
-}
-
-fn device(cpu: bool) -> anyhow::Result<Device> {
-    if cpu {
-        Ok(Device::Cpu)
-    } else if candle_core::utils::cuda_is_available() {
-        Ok(Device::new_cuda(0)?)
-    } else if candle_core::utils::metal_is_available() {
-        Ok(Device::new_metal(0)?)
-    } else {
-        Ok(Device::Cpu)
-    }
-}
-
-mod config;
-mod model;
-
-use config::Config;
-use model::{ModelLoader, UnifiedModel};
+// 使用新的库接口
+use calf::{CalfApiService, Config};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -136,13 +84,14 @@ struct Args {
     interactive: bool,
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     use tracing_chrome::ChromeLayerBuilder;
     use tracing_subscriber::prelude::*;
 
     let args = Args::parse();
 
-    // Load configuration
+    // Load configuration first to handle list command
     let config = Config::load_from_file(&args.config)?;
 
     // Handle list models command
@@ -159,7 +108,7 @@ fn main() -> anyhow::Result<()> {
         None => return Err(anyhow::anyhow!("Model name is required. Use --model <model_name> or --list to see available models")),
     };
 
-    // Get model configuration
+    // Get model configuration for display
     let model_config = config
         .models
         .get(model_name)
@@ -185,15 +134,8 @@ fn main() -> anyhow::Result<()> {
         utils::with_f16c()
     );
 
-    // Setup device and model
-    let device = device(args.cpu)?;
-    // First need to download model
-    let model_path = ModelLoader::download_model(model_config)?;
-    let mut model = ModelLoader::load_model(model_config, model_path, &device)?;
-
-    // Load tokenizer
-    let tokenizer_path = ModelLoader::download_tokenizer(model_config)?;
-    let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;
+    // 直接创建高层API服务
+    let api_service = CalfApiService::new(&args.config, args.cpu).await?;
 
     // Setup parameters with config defaults
     let temperature = args.temperature
@@ -205,143 +147,103 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or(config.default_settings.repeat_penalty);
     let repeat_last_n = args.repeat_last_n
         .unwrap_or(config.default_settings.repeat_last_n);
-    let seed = args.seed
-        .unwrap_or(config.default_settings.seed);
+    let seed = args.seed;
     let split_prompt = args.split_prompt;
+    let top_p = args.top_p;
+    let top_k = args.top_k;
 
     if args.interactive {
         run_interactive_mode(
-            &mut model,
-            &tokenizer,
-            &config,
-            model_config,
+            &api_service,
+            model_name,
             temperature,
-            seed,
+            sample_len,
             repeat_penalty,
             repeat_last_n,
-            sample_len,
+            seed,
             split_prompt,
-            &device,
-        )?;
+            top_p,
+            top_k,
+        ).await?;
     } else {
         let prompt = args
             .prompt
             .ok_or_else(|| anyhow::anyhow!("Prompt is required for non-interactive mode"))?;
 
         run_single_inference(
-            &mut model,
-            &tokenizer,
-            &config,
-            model_config,
+            &api_service,
+            model_name,
             &prompt,
             temperature,
-            seed,
+            sample_len,
             repeat_penalty,
             repeat_last_n,
-            sample_len,
+            seed,
             split_prompt,
-            &device,
-        )?;
+            top_p,
+            top_k,
+        ).await?;
     }
 
     Ok(())
 }
 
-fn run_single_inference(
-    model: &mut Box<dyn UnifiedModel>,
-    tokenizer: &Tokenizer,
-    config: &Config,
-    model_config: &config::ModelConfig,
+async fn run_single_inference(
+    api_service: &CalfApiService,
+    model_name: &str,
     prompt: &str,
     temperature: f64,
-    seed: u64,
+    max_tokens: usize,
     repeat_penalty: f32,
     repeat_last_n: usize,
-    sample_len: usize,
+    seed: Option<u64>,
     split_prompt: bool,
-    device: &Device,
+    top_p: Option<f64>,
+    top_k: Option<usize>,
 ) -> anyhow::Result<()> {
-    // Format prompt using template
-    let formatted_prompt = config.format_prompt(&model_config.prompt_template, prompt)?;
-    print!("Prompt: {}", formatted_prompt);
-
-    // Tokenize
-    let mut tos = TokenOutputStream::new(tokenizer.clone());
-    let tokens = tokenizer
-        .encode(formatted_prompt, true)
-        .map_err(|e| anyhow::anyhow!("Tokenizer encode error: {}", e))?
-        .get_ids()
-        .to_vec();
-
-    let mut tokens = if split_prompt {
-        let mut all_tokens = Vec::new();
-        for token in tokens.iter() {
-            let input_ids = Tensor::new(&[*token], device)?.unsqueeze(0)?;
-            let _logits = model.forward(&input_ids, 0)?;
-            all_tokens.push(*token);
-        }
-        all_tokens
-    } else {
-        tokens
-    };
-
-    // Setup sampling
-    let mut logits_processor = LogitsProcessor::new(
-        seed,
-        Some(temperature),
-        None, // top_p
-    );
-
+    print!("Prompt: {}", prompt);
     print!(" -> ");
-    for index in 0..sample_len {
-        let context_size = if index > 0 { 1 } else { tokens.len() };
-        let context_index = tokens.len().saturating_sub(context_size);
-        let input = Tensor::new(&tokens[context_index..], device)?.unsqueeze(0)?;
-        let logits = model.forward(&input, tokens.len().saturating_sub(1))?;
+    std::io::stdout().flush()?;
 
-        let logits = if repeat_penalty == 1.0 {
-            logits
-        } else {
-            let start_at = tokens.len().saturating_sub(repeat_last_n);
-            candle_transformers::utils::apply_repeat_penalty(
-                &logits,
-                repeat_penalty,
-                &tokens[start_at..],
-            )?
-        };
+    // Use the new engine interface through api service
+    let result = api_service.engine().generate_text_simple(
+        model_name,
+        prompt,
+        max_tokens,
+        temperature,
+        repeat_penalty,
+        repeat_last_n,
+        seed,
+        split_prompt,
+        top_p,
+        top_k,
+    ).await;
 
-        let next_token = logits_processor.sample(&logits)?;
-        tokens.push(next_token);
-        tos.next_token(next_token)?;
-
-        let eos_token = *tokenizer
-            .get_vocab(true)
-            .get(&model_config.eos_token)
-            .unwrap_or(&0);
-
-        if next_token == eos_token {
-            break;
+    match result {
+        Ok(generated_text) => {
+            println!("{}", generated_text);
+            println!("Generated text successfully");
+        }
+        Err(e) => {
+            eprintln!("Error generating text: {}", e);
+            return Err(e.into());
         }
     }
-
-    println!();
-    println!("Generated {} tokens", tokens.len() - 1);
 
     Ok(())
 }
 
-fn run_interactive_mode(
-    model: &mut Box<dyn UnifiedModel>,
-    tokenizer: &Tokenizer,
-    config: &Config,
-    model_config: &config::ModelConfig,
+async fn run_interactive_mode(
+    api_service: &CalfApiService,
+    model_name: &str,
     temperature: f64,
-    seed: u64,
+    max_tokens: usize,
     repeat_penalty: f32,
     repeat_last_n: usize,
-    sample_len: usize,
+    seed: Option<u64>,
     split_prompt: bool,
-    device: &Device,
+    top_p: Option<f64>,
+    top_k: Option<usize>,
 ) -> anyhow::Result<()> {
     println!("Interactive mode. Type 'quit' to exit.");
 
@@ -362,19 +264,18 @@ fn run_interactive_mode(
         }
 
         if let Err(e) = run_single_inference(
-            model,
-            tokenizer,
-            config,
-            model_config,
+            api_service,
+            model_name,
             input,
             temperature,
-            seed,
+            max_tokens,
             repeat_penalty,
             repeat_last_n,
-            sample_len,
+            seed,
             split_prompt,
-            device,
-        ) {
+            top_p,
+            top_k,
+        ).await {
             eprintln!("Error: {}", e);
         }
     }
